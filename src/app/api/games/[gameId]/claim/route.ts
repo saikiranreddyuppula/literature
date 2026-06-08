@@ -85,6 +85,13 @@ export async function POST(
   for (const c of actualCards) {
     actualMap[c.card] = c.holder_id;
   }
+  const holderTeams = new Map(
+    players.map((p) => [p.player_id, playerTeam(p.seat_position)])
+  );
+  const anyOpponentCard = hsCards.some((card) => {
+    const holderId = actualMap[card];
+    return holderId && holderTeams.get(holderId) !== claimerTeam;
+  });
 
   const claimerUser = await db.collection('users').findOne({ _id: visitorId as any });
   const claimerName = claimerUser?.display_name || '';
@@ -101,13 +108,16 @@ export async function POST(
 
   let result: 'correct' | 'forfeited';
   let claimedBy: string | null;
+  let claimedTeam: number | null;
 
   if (allCorrect) {
     result = 'correct';
     claimedBy = visitorId;
+    claimedTeam = claimerTeam;
   } else {
     result = 'forfeited';
     claimedBy = null;
+    claimedTeam = anyOpponentCard ? 1 - claimerTeam : null;
   }
 
   // Record the claim
@@ -115,7 +125,7 @@ export async function POST(
     game_id: game._id,
     half_suit: halfSuit,
     claimed_by: claimedBy,
-    claimed_team: allCorrect ? claimerTeam : null,
+    claimed_team: claimedTeam,
     claimed_at: new Date(),
   });
 
@@ -139,15 +149,17 @@ export async function POST(
   let logMessage = '';
   if (result === 'correct') {
     logMessage = `${claimerName} correctly claimed ${hsName}!`;
+  } else if (claimedTeam !== null) {
+    logMessage = `${claimerName} claimed ${hsName}, but the other team had at least one card. Team ${claimedTeam + 1} gets the set.`;
   } else {
-    logMessage = `${claimerName} claimed ${hsName} but got the distribution wrong. Set is forfeited!`;
+    logMessage = `${claimerName} claimed ${hsName} but got the distribution wrong. Set is voided!`;
   }
 
   await db.collection('game_log').insertOne({
     game_id: game._id,
     action: 'claim',
     player_id: visitorId,
-    details: { halfSuit, result, claimedBy, claimerName, message: logMessage },
+    details: { halfSuit, result, claimedBy, claimedTeam, claimerName, message: logMessage },
     created_at: new Date(),
   });
 
