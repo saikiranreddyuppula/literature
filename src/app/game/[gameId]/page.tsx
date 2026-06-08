@@ -167,6 +167,7 @@ interface GameState {
   code: string;
   status: 'waiting' | 'playing' | 'finished';
   maxPlayers: number;
+  isFlexible?: boolean;
   currentTurnPlayerId: string | null;
   createdBy: string;
   scores: Record<string, number>;

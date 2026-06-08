@@ -105,6 +105,7 @@ export async function GET(
     code: game.code,
     status: game.status,
     maxPlayers: computedSeatCount,
+    isFlexible: game.max_players == null,
     currentTurnPlayerId: game.current_turn_player_id,
     createdBy: game.created_by,
     scores,

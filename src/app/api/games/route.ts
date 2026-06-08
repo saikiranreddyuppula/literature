@@ -47,5 +47,5 @@ export async function POST(request: NextRequest) {
     seat_position: 0,
   });
 
-  return NextResponse.json({ gameId, code });
+  return NextResponse.json({ gameId, code, isFlexible: maxPlayers === null });
 }
