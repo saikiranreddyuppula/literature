@@ -6,8 +6,25 @@ const JWT_SECRET = new TextEncoder().encode(
 );
 
 export async function middleware(request: NextRequest) {
-  const response = NextResponse.next();
   const token = request.cookies.get('visitor_token')?.value;
+  const requestHeaders = new Headers(request.headers);
+
+  function nextWithVisitor(visitorId: string, jwt?: string) {
+    requestHeaders.set('x-visitor-id', visitorId);
+    const response = NextResponse.next({
+      request: { headers: requestHeaders },
+    });
+    if (jwt) {
+      response.cookies.set('visitor_token', jwt, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 365 * 24 * 60 * 60,
+        path: '/',
+      });
+    }
+    return response;
+  }
 
   if (!token) {
     const visitorId = crypto.randomUUID();
@@ -17,16 +34,11 @@ export async function middleware(request: NextRequest) {
       .setExpirationTime('365d')
       .sign(JWT_SECRET);
 
-    response.cookies.set('visitor_token', jwt, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 365 * 24 * 60 * 60,
-      path: '/',
-    });
+    return nextWithVisitor(visitorId, jwt);
   } else {
     try {
-      await jwtVerify(token, JWT_SECRET);
+      const { payload } = await jwtVerify(token, JWT_SECRET);
+      return nextWithVisitor(payload.visitorId as string);
     } catch {
       const visitorId = crypto.randomUUID();
       const jwt = await new SignJWT({ visitorId })
@@ -35,17 +47,9 @@ export async function middleware(request: NextRequest) {
         .setExpirationTime('365d')
         .sign(JWT_SECRET);
 
-      response.cookies.set('visitor_token', jwt, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 365 * 24 * 60 * 60,
-        path: '/',
-      });
+      return nextWithVisitor(visitorId, jwt);
     }
   }
-
-  return response;
 }
 
 export const config = {
