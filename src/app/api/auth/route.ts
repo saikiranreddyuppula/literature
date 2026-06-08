@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getVisitorId } from '@/lib/auth';
+import { cookies } from 'next/headers';
+import { createToken, getVisitorId } from '@/lib/auth';
 import { getDb } from '@/lib/db';
 
 const ALLOWED_AVATARS = [
@@ -11,10 +12,7 @@ const ALLOWED_AVATARS = [
 ];
 
 export async function GET() {
-  const visitorId = await getVisitorId();
-  if (!visitorId) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-  }
+  const visitorId = await ensureVisitorId();
 
   const db = await getDb();
   const user = await db.collection('users').findOne({ _id: visitorId as any });
@@ -27,10 +25,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const visitorId = await getVisitorId();
-  if (!visitorId) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-  }
+  const visitorId = await ensureVisitorId();
 
   const body = await request.json();
   const { name, avatar } = body;
@@ -55,4 +50,20 @@ export async function POST(request: NextRequest) {
   );
 
   return NextResponse.json({ visitorId, name: displayName, avatar: setFields.avatar || '' });
+}
+
+async function ensureVisitorId(): Promise<string> {
+  const existing = await getVisitorId();
+  if (existing) return existing;
+
+  const visitorId = crypto.randomUUID();
+  const token = await createToken(visitorId);
+  cookies().set('visitor_token', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 365 * 24 * 60 * 60,
+    path: '/',
+  });
+  return visitorId;
 }

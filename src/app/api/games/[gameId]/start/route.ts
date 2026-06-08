@@ -43,11 +43,17 @@ export async function POST(
     .sort({ seat_position: 1 })
     .toArray();
 
-  const seatCount = determineSeatCount(players.length);
+  const seatCount = game.max_players || determineSeatCount(players.length);
 
   if (!seatCount) {
     return NextResponse.json(
       { error: `Need at least 6 players to start (currently ${players.length})` },
+      { status: 400 }
+    );
+  }
+  if (game.max_players && players.length !== game.max_players) {
+    return NextResponse.json(
+      { error: `Need exactly ${game.max_players} players to start` },
       { status: 400 }
     );
   }

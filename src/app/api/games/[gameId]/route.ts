@@ -80,12 +80,19 @@ export async function GET(
 
   // Compute individual scores from claims
   const scores: Record<string, number> = {};
+  const teamScores: Record<string, number> = { '0': 0, '1': 0 };
+  const playerTeams: Record<string, number> = {};
   for (const p of players) {
     scores[p.player_id] = 0;
+    playerTeams[p.player_id] = p.seat_position % 2;
   }
   for (const c of claims) {
     if (c.claimed_by) {
       scores[c.claimed_by] = (scores[c.claimed_by] || 0) + 1;
+    }
+    const team = c.claimed_team ?? (c.claimed_by ? playerTeams[c.claimed_by] : null);
+    if (team === 0 || team === 1) {
+      teamScores[String(team)] = (teamScores[String(team)] || 0) + 1;
     }
   }
 
@@ -101,6 +108,7 @@ export async function GET(
     currentTurnPlayerId: game.current_turn_player_id,
     createdBy: game.created_by,
     scores,
+    teamScores,
     winner: game.winner,
     showLog,
     updatedAt: game.updated_at,
@@ -112,12 +120,14 @@ export async function GET(
       name: p.display_name,
       avatar: p.avatar || '',
       seatPosition: p.seat_position,
+      team: p.seat_position % 2,
       cardCount: cardCounts[p.player_id] || 0,
       pairedWith: p.paired_with || null,
     })),
     claims: claims.map((c) => ({
       half_suit: c.half_suit,
       claimed_by: c.claimed_by || null,
+      claimed_team: c.claimed_team ?? (c.claimed_by ? playerTeams[c.claimed_by] : null),
     })),
     logs: Buffer.from(JSON.stringify(logs.map((l) => ({
       action: l.action,

@@ -38,8 +38,10 @@ export async function POST(
 
   const playerCount = await db.collection('game_players').countDocuments({ game_id: game._id });
 
-  // Allow up to 24 players (extra players will be paired with seated players)
-  if (playerCount >= 24) {
+  // Fixed-size mobile rooms stop at their requested table size. Web rooms
+  // without max_players keep the flexible pairing behavior.
+  const playerLimit = game.max_players || 24;
+  if (playerCount >= playerLimit) {
     return NextResponse.json({ error: 'Game is full' }, { status: 400 });
   }
 

@@ -16,6 +16,8 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json().catch(() => ({}));
+  const fixedCounts = [6, 8];
+  const maxPlayers = fixedCounts.includes(body.maxPlayers) ? body.maxPlayers : null;
   const showLog = body.showLog !== false;
 
   let code = generateGameCode();
@@ -30,7 +32,7 @@ export async function POST(request: NextRequest) {
     _id: gameId as any,
     code,
     status: 'waiting',
-    max_players: null,
+    max_players: maxPlayers,
     current_turn_player_id: null,
     created_by: visitorId,
     winner: null,

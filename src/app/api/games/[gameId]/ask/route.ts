@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getVisitorId } from '@/lib/auth';
 import { getDb } from '@/lib/db';
-import { getHalfSuit, getHalfSuitCards, getHalfSuitDisplayName, getAllHalfSuits } from '@/lib/game-logic';
+import { getHalfSuit, getHalfSuitCards, getHalfSuitDisplayName, isValidCard, playerTeam } from '@/lib/game-logic';
 
 export async function POST(
   request: NextRequest,
@@ -15,6 +15,9 @@ export async function POST(
   const { targetPlayerId, card } = await request.json();
   if (!targetPlayerId || !card) {
     return NextResponse.json({ error: 'Missing targetPlayerId or card' }, { status: 400 });
+  }
+  if (!isValidCard(card)) {
+    return NextResponse.json({ error: 'Invalid card' }, { status: 400 });
   }
 
   const db = await getDb();
@@ -33,10 +36,18 @@ export async function POST(
     .find({ game_id: game._id })
     .toArray();
 
+  const asker = players.find((p) => p.player_id === visitorId);
+  if (!asker) {
+    return NextResponse.json({ error: 'You are not seated in this game' }, { status: 403 });
+  }
+
   const target = players.find((p) => p.player_id === targetPlayerId);
   if (!target) return NextResponse.json({ error: 'Target player not found' }, { status: 400 });
   if (targetPlayerId === visitorId) {
     return NextResponse.json({ error: 'Cannot ask yourself' }, { status: 400 });
+  }
+  if (playerTeam(target.seat_position) === playerTeam(asker.seat_position)) {
+    return NextResponse.json({ error: 'You can only ask an opponent' }, { status: 400 });
   }
 
   // Check target has at least one card
@@ -121,6 +132,7 @@ export async function POST(
           game_id: game._id,
           half_suit: hs,
           claimed_by: visitorId,
+          claimed_team: playerTeam(asker.seat_position),
           claimed_at: new Date(),
         });
 
@@ -143,16 +155,15 @@ export async function POST(
         if (claimCount >= 8) {
           const allClaims = await db.collection('game_claims').find({ game_id: game._id }).toArray();
           const scores: Record<string, number> = {};
+          const teamScores: Record<string, number> = { '0': 0, '1': 0 };
           for (const p of players) scores[p.player_id] = 0;
           for (const c of allClaims) {
             if (c.claimed_by) scores[c.claimed_by] = (scores[c.claimed_by] || 0) + 1;
+            if (c.claimed_team === 0 || c.claimed_team === 1) {
+              teamScores[String(c.claimed_team)] = (teamScores[String(c.claimed_team)] || 0) + 1;
+            }
           }
-          const maxScore = Math.max(...Object.values(scores));
-          const topPlayers = Object.entries(scores).filter(([, s]) => s === maxScore);
-          const winner = topPlayers.length === 1 ? topPlayers[0][0] : 'tie';
-          const winnerName = winner !== 'tie'
-            ? (await db.collection('users').findOne({ _id: winner as any }))?.display_name || ''
-            : '';
+          const winner = teamScores['0'] === teamScores['1'] ? 'tie' : (teamScores['0'] > teamScores['1'] ? '0' : '1');
 
           await db.collection('games').updateOne(
             { _id: game._id },
@@ -162,7 +173,7 @@ export async function POST(
             game_id: game._id,
             action: 'game_over',
             player_id: null,
-            details: { message: winner === 'tie' ? "Game over! It's a tie!" : `Game over! ${winnerName} wins!`, scores },
+            details: { message: winner === 'tie' ? "Game over! It's a tie!" : `Game over! Team ${Number(winner) + 1} wins!`, scores, teamScores },
             created_at: new Date(),
           });
         } else {

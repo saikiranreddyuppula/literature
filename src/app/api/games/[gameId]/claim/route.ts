@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getVisitorId } from '@/lib/auth';
 import { getDb } from '@/lib/db';
-import { getHalfSuitCards, getHalfSuitDisplayName, getAllHalfSuits } from '@/lib/game-logic';
+import { getHalfSuitCards, getHalfSuitDisplayName, getAllHalfSuits, playerTeam } from '@/lib/game-logic';
 
 export async function POST(
   request: NextRequest,
@@ -58,11 +58,20 @@ export async function POST(
     .toArray();
 
   const playerIds = new Set(players.map((p) => p.player_id));
+  const claimerSeat = players.find((p) => p.player_id === visitorId);
+  if (!claimerSeat) {
+    return NextResponse.json({ error: 'You are not seated in this game' }, { status: 403 });
+  }
+  const claimerTeam = playerTeam(claimerSeat.seat_position);
 
   // Validate all assigned players are in the game
   for (const playerId of Object.values(assignments) as string[]) {
-    if (!playerIds.has(playerId)) {
+    const assignedSeat = players.find((p) => p.player_id === playerId);
+    if (!playerIds.has(playerId) || !assignedSeat) {
       return NextResponse.json({ error: 'Can only assign cards to players in the game' }, { status: 400 });
+    }
+    if (playerTeam(assignedSeat.seat_position) !== claimerTeam) {
+      return NextResponse.json({ error: 'Can only assign cards to your team' }, { status: 400 });
     }
   }
 
@@ -106,6 +115,7 @@ export async function POST(
     game_id: game._id,
     half_suit: halfSuit,
     claimed_by: claimedBy,
+    claimed_team: allCorrect ? claimerTeam : null,
     claimed_at: new Date(),
   });
 
@@ -145,6 +155,7 @@ export async function POST(
     // Game over - find winner by most claims
     const allClaims = await db.collection('game_claims').find({ game_id: game._id }).toArray();
     const scores: Record<string, number> = {};
+    const teamScores: Record<string, number> = { '0': 0, '1': 0 };
     for (const p of players) {
       scores[p.player_id] = 0;
     }
@@ -152,15 +163,12 @@ export async function POST(
       if (c.claimed_by) {
         scores[c.claimed_by] = (scores[c.claimed_by] || 0) + 1;
       }
+      if (c.claimed_team === 0 || c.claimed_team === 1) {
+        teamScores[String(c.claimed_team)] = (teamScores[String(c.claimed_team)] || 0) + 1;
+      }
     }
 
-    const maxScore = Math.max(...Object.values(scores));
-    const topPlayers = Object.entries(scores).filter(([, s]) => s === maxScore);
-    const winner = topPlayers.length === 1 ? topPlayers[0][0] : 'tie';
-
-    const winnerName = winner !== 'tie'
-      ? (await db.collection('users').findOne({ _id: winner as any }))?.display_name || ''
-      : '';
+    const winner = teamScores['0'] === teamScores['1'] ? 'tie' : (teamScores['0'] > teamScores['1'] ? '0' : '1');
 
     await db.collection('games').updateOne(
       { _id: game._id },
@@ -172,8 +180,9 @@ export async function POST(
       action: 'game_over',
       player_id: null,
       details: {
-        message: winner === 'tie' ? "Game over! It's a tie!" : `Game over! ${winnerName} wins!`,
+        message: winner === 'tie' ? "Game over! It's a tie!" : `Game over! Team ${Number(winner) + 1} wins!`,
         scores,
+        teamScores,
       },
       created_at: new Date(),
     });
